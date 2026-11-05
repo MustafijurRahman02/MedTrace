@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MedTrace - medicine batch verification</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314646e'/%3E%3Crect x='14' y='6' width='4' height='14' rx='2' fill='white'/%3E%3Ccircle cx='16' cy='23' r='4' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/verify" aria-label="MedTrace home"><span class="mark" aria-hidden="true"></span>MedTrace</a>
+    <nav id="nav" aria-label="Main"></nav>
+    <div id="who"></div>
+  </header>
+  <main id="view" tabindex="-1"></main>
+  <footer class="foot">Academic prototype. Use test data only. Not a certified drug-authentication service.</footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript><p style="padding:2rem">MedTrace needs JavaScript to run.</p></noscript>
+</body>
+</html>
