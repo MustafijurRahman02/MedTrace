@@ -3,6 +3,7 @@ uvicorn[standard]>=0.29
 pyjwt>=2.8
 segno>=1.6
 pyodbc>=5.0        # Azure SQL / SQL Server driver (also needs the Microsoft ODBC Driver 18 - see docs/AZURE_SETUP.md)
+azure-storage-blob>=12.19   # Azure Blob Storage for uploaded evidence files
 pytest>=8
 httpx>=0.27
 sqlglot>=25        # tests only: checks every SQL statement is valid T-SQL
