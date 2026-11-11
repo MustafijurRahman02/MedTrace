@@ -246,6 +246,23 @@ async function batchPage(id) {
       h('div', { class: 'small' }, a.reason), h('div', { class: 'muted small' }, when(a.created_at)))) : h('div', { class: 'empty' }, 'No alerts.'));
   root.append(header, h('div', { class: 'grid g2' }, chart, timeline), alerts);
 
+  if (has('admin', 'distributor', 'registrar', 'reviewer')) {
+    let files = [];
+    try { files = await api(`/batches/${id}/evidence`); } catch (e) { files = []; }
+    const download = async (f) => {
+      const res = await fetch(`/api/batches/${id}/evidence/${f.file_id}`, { headers: { Authorization: 'Bearer ' + session.token } });
+      if (!res.ok) { let m = 'Download failed'; try { m = (await res.json()).detail || m; } catch (e) { /* keep default */ } return toast(m, true); }
+      const a = h('a', { href: URL.createObjectURL(await res.blob()), download: `batch${id}_${f.file_id}.csv` }); document.body.append(a); a.click(); a.remove();
+    };
+    const where = { 'azure-blob': 'Azure Blob Storage', local: 'Local folder' };
+    root.append(h('div', { class: 'card' }, h('h2', {}, 'Evidence files'),
+      files.length ? files.map((f) => h('div', { class: 'alert-box row spread' },
+        h('div', {}, h('b', { class: 'code' }, 'batch' + id + '_' + f.file_id + '.csv'),
+          h('div', { class: 'muted small' }, `${f.readings} reading(s) · ${when(f.first_reading)} to ${when(f.last_reading)} · stored in ${where[f.stored_in] || f.stored_in}`)),
+        h('button', { class: 'btn ghost sm', type: 'button', onclick: () => download(f) }, 'Download')))
+        : h('div', { class: 'empty' }, 'No CSV files uploaded yet. Files you upload under "Add temperature evidence" appear here.')));
+  }
+
   if (has('admin', 'distributor', 'pharmacy')) {
     const type = select(has('pharmacy') ? [['RECEIVED_AT_PHARMACY', 'Received at pharmacy'], ['RETURNED', 'Returned']] : Object.entries(EVENTS).filter(([k]) => k !== 'REGISTERED'));
     const loc = h('input', { type: 'text', maxlength: 80, required: true }); const notes = h('input', { type: 'text', maxlength: 500 });
