@@ -1,6 +1,7 @@
 """MedTrace API (FastAPI). Run: uvicorn app.main:app --reload  (from the backend/ folder)."""
 import io
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 
 from . import services as svc
+from . import storage
 from .db import ROOT, IntegrityError, audit, backend_name, get_db, init_db, now_iso
 from .schemas import (AlertPatch, BatchIn, BatchStatusIn, ConcernIn, EventIn, LoginIn, MedicineIn,
                       TempLogsIn, UserIn, UserPatch)
@@ -227,6 +229,45 @@ def get_temperature_logs(batch_id: int, limit: int = Query(200, ge=1, le=1000), 
                              + PAGE, (batch_id, offset, limit)))
 
 
+EVIDENCE_ROLES = ("admin", "distributor", "registrar", "reviewer")
+
+
+@app.get("/api/batches/{batch_id}/evidence")
+def list_evidence(batch_id: int, conn=Depends(get_db), user=Depends(require(*EVIDENCE_ROLES))):
+    """CSV evidence files uploaded for a batch (stored in Azure Blob Storage or the local folder)."""
+    get_batch_row(conn, batch_id)
+    found = rows(conn.execute(
+        "SELECT file_reference, COUNT(*) AS readings, MIN(recorded_at) AS first_reading, MAX(recorded_at) AS last_reading"
+        " FROM temperature_logs WHERE batch_id=? AND file_reference IS NOT NULL GROUP BY file_reference"
+        " ORDER BY MIN(log_id)", (batch_id,)))
+    return [{"file_id": storage.file_id(r["file_reference"]), "readings": r["readings"],
+             "first_reading": r["first_reading"], "last_reading": r["last_reading"],
+             "stored_in": "azure-blob" if r["file_reference"].startswith(storage.BLOB_PREFIX) else "local"}
+            for r in found if storage.file_id(r["file_reference"])]
+
+
+@app.get("/api/batches/{batch_id}/evidence/{file_id}")
+def download_evidence(batch_id: int, file_id: str, conn=Depends(get_db), user=Depends(require(*EVIDENCE_ROLES))):
+    """Stream one evidence file. The id must belong to this batch; the storage container itself stays private."""
+    if not re.fullmatch(r"[0-9a-f]{12}", file_id):
+        raise HTTPException(404, "Evidence file not found")
+    get_batch_row(conn, batch_id)
+    refs = [r["file_reference"] for r in conn.execute(
+        "SELECT DISTINCT file_reference FROM temperature_logs WHERE batch_id=? AND file_reference IS NOT NULL",
+        (batch_id,)).fetchall()]
+    ref = next((r for r in refs if storage.file_id(r) == file_id), None)
+    if not ref:
+        raise HTTPException(404, "Evidence file not found")
+    try:
+        data = storage.read(ref)
+    except storage.StorageUnavailable as e:
+        raise HTTPException(503, str(e))
+    with conn:
+        audit(conn, user["user_id"], "DOWNLOAD_EVIDENCE", "batch", batch_id, {"file": ref})
+    return Response(data, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="batch{batch_id}_{file_id}.csv"'})
+
+
 @app.get("/api/batches/{batch_id}/safety-status")
 def safety_status(batch_id: int, conn=Depends(get_db), user=Depends(require())):
     r = get_batch_row(conn, batch_id)
@@ -375,7 +416,7 @@ def update_user(user_id: int, d: UserPatch, conn=Depends(get_db), user=Depends(r
 def health(conn=Depends(get_db)):
     """Open /api/health in the browser to confirm the app can reach the database."""
     conn.execute("SELECT 1").fetchone()
-    return {"status": "ok", "database": backend_name()}
+    return {"status": "ok", "database": backend_name(), "storage": storage.backend_name()}
 
 
 # ------------------------------------------------------------------ frontend
