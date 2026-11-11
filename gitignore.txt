@@ -1,0 +1,20 @@
+# secrets and local data - NEVER commit these
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+storage/*
+!storage/.gitkeep
+uploads/
+release.zip
+
+# python / tooling
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
