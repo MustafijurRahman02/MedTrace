@@ -6,7 +6,8 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from .db import IntegrityError, audit, now_iso, storage_dir
+from . import storage
+from .db import IntegrityError, audit, now_iso
 
 ACTIVE = ("OPEN", "UNDER_REVIEW", "ESCALATED")
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{5,39}$")
@@ -235,19 +236,25 @@ def add_temperature_logs(conn, user_id, batch_id, d) -> dict:
     file_ref, source = None, d.source_type
     if d.csv_text:
         rows, source = parse_csv(d.csv_text), "CSV_IMPORT"
-        file_ref = f"csv/batch{batch_id}_{uuid.uuid4().hex[:12]}.csv"   # server-generated name only
-        path = storage_dir() / file_ref
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(d.csv_text, encoding="utf-8")
+        name = f"csv/batch{batch_id}_{uuid.uuid4().hex[:12]}.csv"        # server-generated name only
+        try:   # Azure Blob Storage when configured, else the local folder
+            file_ref = storage.save(name, d.csv_text, {"batch_id": batch_id, "uploaded_by": user_id})
+        except storage.StorageUnavailable as e:
+            raise ApiError(503, "Could not store the evidence file. " + str(e))
     else:
         rows = [(norm_ts(r.recorded_at), r.temperature_value) for r in d.readings]
-    with conn:
-        conn.executemany(
-            "INSERT INTO temperature_logs (batch_id, source_event_id, temperature_value, recorded_at, source_type,"
-            " file_reference) VALUES (?,?,?,?,?,?)",
-            [(batch_id, d.source_event_id, v, t, source, file_ref) for t, v in rows])
-        audit(conn, user_id, "ADD_TEMP_LOGS", "batch", batch_id,
-              {"count": len(rows), "source": source, "file": file_ref, "filename": d.filename})
+    try:
+        with conn:
+            conn.executemany(
+                "INSERT INTO temperature_logs (batch_id, source_event_id, temperature_value, recorded_at, source_type,"
+                " file_reference) VALUES (?,?,?,?,?,?)",
+                [(batch_id, d.source_event_id, v, t, source, file_ref) for t, v in rows])
+            audit(conn, user_id, "ADD_TEMP_LOGS", "batch", batch_id,
+                  {"count": len(rows), "source": source, "file": file_ref, "filename": d.filename})
+    except Exception:
+        if file_ref:
+            storage.delete(file_ref)      # do not leave an orphan file behind if the database write failed
+        raise
     exc = conn.execute("SELECT excursion_count, safety_status FROM v_drug_safety_status WHERE batch_id=?",
                        (batch_id,)).fetchone()
     return {"inserted": len(rows), "excursion_count": exc["excursion_count"], "safety_status": exc["safety_status"],
